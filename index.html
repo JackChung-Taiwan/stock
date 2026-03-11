@@ -137,7 +137,7 @@
         // === 時間單位對應表 ===
         const unitMap = { 'D': '日', 'W': '週', 'M': '月', 'Y': '年' };
 
-        // === K線週期壓縮引擎 (將日線轉為週/月/年線) ===
+        // === K線週期壓縮引擎 ===
         function aggregateData(dailyData, timeframe) {
             if (timeframe === 'D') return dailyData;
             
@@ -146,23 +146,22 @@
                 let dateObj = new Date(d.date);
                 let key;
                 if (timeframe === 'W') {
-                    // 抓取該週的星期一作為 Key
                     let day = dateObj.getDay() || 7; 
                     if (day !== 1) dateObj.setHours(-24 * (day - 1)); 
                     key = dateObj.toISOString().split('T')[0];
                 } else if (timeframe === 'M') {
-                    key = d.date.substring(0, 7); // YYYY-MM
+                    key = d.date.substring(0, 7); 
                 } else if (timeframe === 'Y') {
-                    key = d.date.substring(0, 4); // YYYY
+                    key = d.date.substring(0, 4); 
                 }
                 
                 if (!grouped[key]) {
                     grouped[key] = { date: d.date, open: d.open, close: d.close, max: d.max, min: d.min, trading_days: [d.date] };
                 } else {
-                    grouped[key].date = d.date; // 更新至該區間最後一天
-                    grouped[key].close = d.close; // 收盤價等於該區間最後一天收盤價
-                    grouped[key].max = Math.max(grouped[key].max, d.max); // 區間最高
-                    grouped[key].min = Math.min(grouped[key].min, d.min); // 區間最低
+                    grouped[key].date = d.date; 
+                    grouped[key].close = d.close; 
+                    grouped[key].max = Math.max(grouped[key].max, d.max); 
+                    grouped[key].min = Math.min(grouped[key].min, d.min); 
                     grouped[key].trading_days.push(d.date);
                 }
             });
@@ -224,6 +223,7 @@
             };
         }
 
+        // 🌟 已修正 KD 計算遺失的變數 🌟
         function calcKD(highs, lows, closes, period = 9) {
             if(closes.length < period) return {curr: {k: 50, d: 50}, prev: {k: 50, d: 50}};
             let kLine = [50], dLine = [50]; 
@@ -238,12 +238,16 @@
                 let prevK = kLine[kLine.length - 1];
                 let prevD = dLine[dLine.length - 1];
                 
+                // 這裡補回遺失的兩行宣告
+                let currentK = (2/3) * prevK + (1/3) * rsv;
+                let currentD = (2/3) * prevD + (1/3) * currentK;
+                
                 kLine.push(currentK);
                 dLine.push(currentD);
             }
             return {
                 curr: { k: kLine[kLine.length-1], d: dLine[dLine.length-1] },
-                prev: { k: kLine[kLine.length-2], d: dLine[dLine.length-2] }
+                prev: { k: kLine[kLine.length-2] || 50, d: dLine[dLine.length-2] || 50 }
             };
         }
 
@@ -289,7 +293,6 @@
                 return;
             }
 
-            // 更新標題的週期字眼
             document.getElementById('rsi-title').innerText = `1. RSI (8${unit} / 21${unit})`;
             document.getElementById('williams-title').innerText = `2. 威廉指數 (21${unit})`;
             document.getElementById('kd-title').innerText = `5. KD 隨機指標 (9${unit})`;
@@ -297,12 +300,11 @@
 
             let tokenParam = token ? `&token=${token}` : "";
             loadingMsg.classList.remove('hidden');
-            quoteBanner.classList.add('hidden'); // 抓取時先隱藏看板
+            quoteBanner.classList.add('hidden'); 
             resultBox.innerHTML = "資料連線下載與運算中...";
             resultBox.className = "p-8 rounded-xl text-center text-2xl font-bold border-2 border-gray-600 bg-gray-800 shadow-lg text-gray-400";
 
             try {
-                // 動態決定要往前抓多久的資料 (日線1年、週線3年、月/年線15年確保計算準確)
                 let daysToFetch = 300; 
                 if (timeframe === 'W') daysToFetch = 1000;
                 else if (timeframe === 'M' || timeframe === 'Y') daysToFetch = 5500;
@@ -321,7 +323,7 @@
 
                 const rawDailyData = priceJson.data;
 
-                // 🌟 更新「今日最新報價看板」 (永遠使用日線最新一天)
+                // 報價看板 (日線)
                 const latestDaily = rawDailyData[rawDailyData.length - 1];
                 const prevDaily = rawDailyData.length > 1 ? rawDailyData[rawDailyData.length - 2] : latestDaily;
                 const change = latestDaily.close - prevDaily.close;
@@ -342,7 +344,7 @@
                     changeEl.className = "text-5xl font-extrabold text-gray-300";
                     document.getElementById('quote-close').className = "text-5xl font-extrabold text-gray-300";
                 }
-                quoteBanner.classList.remove('hidden'); // 顯示看板
+                quoteBanner.classList.remove('hidden'); 
                 quoteBanner.classList.add('flex');
 
                 // 取得股票中文名稱
@@ -355,7 +357,7 @@
                 } catch (e) {}
                 document.getElementById('stock-code').dataset.name = stockName;
 
-                // 🌟 進行 K線週期壓縮
+                // K線週期壓縮
                 const aggregatedData = aggregateData(rawDailyData, timeframe);
                 const latestPeriodData = aggregatedData[aggregatedData.length - 1];
                 const latestDateStr = latestPeriodData.date;
@@ -365,7 +367,7 @@
                 const lows = aggregatedData.map(d => d.min);
                 const latestClose = closes[closes.length - 1];
 
-                // 抓取三大法人 (只抓取最後一個區間包含的日期)
+                // 抓取三大法人
                 let instStatus = 'none';
                 try {
                     let instStartDate = latestPeriodData.trading_days[0];
