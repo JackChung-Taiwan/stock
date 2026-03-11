@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全自動股票分析工具 (多週期看板版)</title>
+    <title>全自動股票分析工具 (多週期與均線看板版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 font-sans p-4 md:p-8 max-w-7xl mx-auto relative">
@@ -45,20 +45,41 @@
         </button>
     </div>
 
-    <div id="quote-banner" class="hidden bg-gray-800 p-6 md:p-8 rounded-xl border-2 border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.3)] mb-8 flex flex-col md:flex-row justify-center items-center gap-6 md:gap-12">
-        <div class="text-center">
-            <div class="text-gray-400 text-xl font-bold mb-1">今日開盤價</div>
-            <div id="quote-open" class="text-5xl font-extrabold text-white">---</div>
+    <div id="quote-banner" class="hidden flex-col bg-gray-800 p-6 md:p-8 rounded-xl border-2 border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.3)] mb-8 gap-6">
+        <div class="flex flex-col md:flex-row justify-center items-center gap-6 md:gap-12">
+            <div class="text-center">
+                <div class="text-gray-400 text-xl font-bold mb-1">今日開盤價</div>
+                <div id="quote-open" class="text-5xl font-extrabold text-white">---</div>
+            </div>
+            <div class="hidden md:block text-gray-600 text-5xl">|</div>
+            <div class="text-center">
+                <div class="text-gray-400 text-xl font-bold mb-1">今日收盤價</div>
+                <div id="quote-close" class="text-5xl font-extrabold text-white">---</div>
+            </div>
+            <div class="hidden md:block text-gray-600 text-5xl">|</div>
+            <div class="text-center">
+                <div class="text-gray-400 text-xl font-bold mb-1">漲跌狀況</div>
+                <div id="quote-change" class="text-4xl font-extrabold">---</div>
+            </div>
         </div>
-        <div class="hidden md:block text-gray-600 text-5xl">|</div>
-        <div class="text-center">
-            <div class="text-gray-400 text-xl font-bold mb-1">今日收盤價</div>
-            <div id="quote-close" class="text-5xl font-extrabold text-white">---</div>
-        </div>
-        <div class="hidden md:block text-gray-600 text-5xl">|</div>
-        <div class="text-center">
-            <div class="text-gray-400 text-xl font-bold mb-1">漲跌狀況</div>
-            <div id="quote-change" class="text-4xl font-extrabold">---</div>
+        
+        <div class="border-t border-gray-600 pt-6 mt-2 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            <div class="bg-gray-700 rounded-lg p-3 shadow-inner">
+                <div class="text-blue-300 text-lg font-bold mb-1">週線 (5MA)</div>
+                <div id="ma5" class="text-2xl font-bold">---</div>
+            </div>
+            <div class="bg-gray-700 rounded-lg p-3 shadow-inner">
+                <div class="text-blue-300 text-lg font-bold mb-1">月線 (20MA)</div>
+                <div id="ma20" class="text-2xl font-bold">---</div>
+            </div>
+            <div class="bg-gray-700 rounded-lg p-3 shadow-inner">
+                <div class="text-blue-300 text-lg font-bold mb-1">季線 (60MA)</div>
+                <div id="ma60" class="text-2xl font-bold">---</div>
+            </div>
+            <div class="bg-gray-700 rounded-lg p-3 shadow-inner">
+                <div class="text-blue-300 text-lg font-bold mb-1">年線 (240MA)</div>
+                <div id="ma240" class="text-2xl font-bold">---</div>
+            </div>
         </div>
     </div>
 
@@ -140,7 +161,6 @@
         // === K線週期壓縮引擎 ===
         function aggregateData(dailyData, timeframe) {
             if (timeframe === 'D') return dailyData;
-            
             let grouped = {};
             dailyData.forEach(d => {
                 let dateObj = new Date(d.date);
@@ -169,6 +189,17 @@
         }
 
         // === 內部數學算法區塊 ===
+        
+        // 🌟 新增：單純計算移動平均線 (SMA)
+        function calcSMA(closes, period) {
+            if (closes.length < period) return NaN;
+            let sum = 0;
+            for(let i = closes.length - period; i < closes.length; i++){
+                sum += closes[i];
+            }
+            return sum / period;
+        }
+
         function calcRSI(closes, period) {
             if(closes.length < period) return 50;
             let gains = 0, losses = 0;
@@ -179,7 +210,6 @@
             }
             let avgGain = gains / period;
             let avgLoss = losses / period;
-            
             for(let i = period + 1; i < closes.length; i++) {
                 let diff = closes[i] - closes[i-1];
                 let gain = diff > 0 ? diff : 0;
@@ -223,7 +253,6 @@
             };
         }
 
-        // 🌟 已修正 KD 計算遺失的變數 🌟
         function calcKD(highs, lows, closes, period = 9) {
             if(closes.length < period) return {curr: {k: 50, d: 50}, prev: {k: 50, d: 50}};
             let kLine = [50], dLine = [50]; 
@@ -233,15 +262,11 @@
                 let recentLows = lows.slice(i - period + 1, i + 1);
                 let hh = Math.max(...recentHighs);
                 let ll = Math.min(...recentLows);
-                
                 let rsv = (hh === ll) ? 0 : ((currentClose - ll) / (hh - ll)) * 100;
                 let prevK = kLine[kLine.length - 1];
                 let prevD = dLine[dLine.length - 1];
-                
-                // 這裡補回遺失的兩行宣告
                 let currentK = (2/3) * prevK + (1/3) * rsv;
                 let currentD = (2/3) * prevD + (1/3) * currentK;
-                
                 kLine.push(currentK);
                 dLine.push(currentD);
             }
@@ -279,6 +304,15 @@
             }
         }
 
+        // 格式化均線顯示 (判斷站上或跌破)
+        function formatMA(maValue, currentPrice) {
+            if (isNaN(maValue)) return "<span class='text-gray-500'>資料不足</span>";
+            let isAbove = currentPrice >= maValue;
+            let color = isAbove ? "text-red-400" : "text-green-400";
+            let icon = isAbove ? "▲" : "▼";
+            return `<span class="${color}">${maValue.toFixed(2)} ${icon}</span>`;
+        }
+
         async function fetchFinMindData() {
             const stockCode = document.getElementById('stock-code').value.trim();
             const token = document.getElementById('api-token').value.trim();
@@ -305,8 +339,9 @@
             resultBox.className = "p-8 rounded-xl text-center text-2xl font-bold border-2 border-gray-600 bg-gray-800 shadow-lg text-gray-400";
 
             try {
-                let daysToFetch = 300; 
-                if (timeframe === 'W') daysToFetch = 1000;
+                // 🌟 修改：為了算出精準的「240日年線」，無論看什麼線，日線資料預設都抓過去 500 天
+                let daysToFetch = 500; 
+                if (timeframe === 'W') daysToFetch = 1500;
                 else if (timeframe === 'M' || timeframe === 'Y') daysToFetch = 5500;
 
                 let today = new Date();
@@ -322,8 +357,9 @@
                 if (!priceJson.data || priceJson.data.length === 0) throw new Error("找不到股價資料，請確認代號。");
 
                 const rawDailyData = priceJson.data;
+                const rawDailyCloses = rawDailyData.map(d => d.close);
 
-                // 報價看板 (日線)
+                // 🌟 更新報價看板：開盤、收盤、漲跌
                 const latestDaily = rawDailyData[rawDailyData.length - 1];
                 const prevDaily = rawDailyData.length > 1 ? rawDailyData[rawDailyData.length - 2] : latestDaily;
                 const change = latestDaily.close - prevDaily.close;
@@ -333,17 +369,29 @@
                 let changeEl = document.getElementById('quote-change');
                 if (change > 0) {
                     changeEl.innerText = `▲ +${change.toFixed(1)}`;
-                    changeEl.className = "text-5xl font-extrabold text-red-500";
+                    changeEl.className = "text-4xl font-extrabold text-red-500";
                     document.getElementById('quote-close').className = "text-5xl font-extrabold text-red-500";
                 } else if (change < 0) {
                     changeEl.innerText = `▼ ${change.toFixed(1)}`;
-                    changeEl.className = "text-5xl font-extrabold text-green-500";
+                    changeEl.className = "text-4xl font-extrabold text-green-500";
                     document.getElementById('quote-close').className = "text-5xl font-extrabold text-green-500";
                 } else {
                     changeEl.innerText = `持平`;
-                    changeEl.className = "text-5xl font-extrabold text-gray-300";
+                    changeEl.className = "text-4xl font-extrabold text-gray-300";
                     document.getElementById('quote-close').className = "text-5xl font-extrabold text-gray-300";
                 }
+
+                // 🌟 更新報價看板：四大均線 (5MA, 20MA, 60MA, 240MA)
+                const ma5 = calcSMA(rawDailyCloses, 5);
+                const ma20 = calcSMA(rawDailyCloses, 20);
+                const ma60 = calcSMA(rawDailyCloses, 60);
+                const ma240 = calcSMA(rawDailyCloses, 240);
+
+                document.getElementById('ma5').innerHTML = formatMA(ma5, latestDaily.close);
+                document.getElementById('ma20').innerHTML = formatMA(ma20, latestDaily.close);
+                document.getElementById('ma60').innerHTML = formatMA(ma60, latestDaily.close);
+                document.getElementById('ma240').innerHTML = formatMA(ma240, latestDaily.close);
+
                 quoteBanner.classList.remove('hidden'); 
                 quoteBanner.classList.add('flex');
 
