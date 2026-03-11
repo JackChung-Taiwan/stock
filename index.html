@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全自動股票分析工具 (內建算法與詳細診斷版)</title>
+    <title>全自動股票分析工具 (專屬參數客製版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 font-sans p-4 md:p-8 max-w-7xl mx-auto relative">
@@ -42,18 +42,18 @@
     </div>
 
     <h2 class="text-3xl font-bold text-gray-200 mb-8 text-center border-b-4 border-gray-700 pb-4">
-        六項指標評估器（已自動帶入真實數據）
+        六項指標評估器（已自動帶入專屬數據）
     </h2>
     
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
         <div class="bg-gray-800 p-6 rounded-xl border-2 border-gray-700 shadow-lg">
-            <h3 class="text-2xl font-bold text-blue-400 mb-4">1. RSI 相對強弱 (14日)</h3>
+            <h3 class="text-2xl font-bold text-blue-400 mb-4">1. RSI (8日 / 21日)</h3>
             <label class="text-xl text-gray-300 block mb-2" id="rsi-label">目前數值：</label>
-            <input type="number" id="rsi" placeholder="等待抓取..." readonly class="w-full p-4 bg-gray-700 text-white border-2 border-gray-600 rounded-lg text-2xl focus:outline-none">
+            <input type="text" id="rsi" placeholder="等待抓取..." readonly class="w-full p-4 bg-gray-700 text-white border-2 border-gray-600 rounded-lg text-2xl focus:outline-none">
         </div>
 
         <div class="bg-gray-800 p-6 rounded-xl border-2 border-gray-700 shadow-lg">
-            <h3 class="text-2xl font-bold text-blue-400 mb-4">2. 威廉指數 W%R (14日)</h3>
+            <h3 class="text-2xl font-bold text-blue-400 mb-4">2. 威廉指數 (21日)</h3>
             <label class="text-xl text-gray-300 block mb-2" id="williams-label">目前數值：</label>
             <input type="number" id="williams" placeholder="等待抓取..." readonly class="w-full p-4 bg-gray-700 text-white border-2 border-gray-600 rounded-lg text-2xl focus:outline-none">
         </div>
@@ -69,7 +69,7 @@
         </div>
 
         <div class="bg-gray-800 p-6 rounded-xl border-2 border-gray-700 shadow-lg">
-            <h3 class="text-2xl font-bold text-blue-400 mb-4">4. MACD 指標</h3>
+            <h3 class="text-2xl font-bold text-blue-400 mb-4">4. MACD (5, 26, 5)</h3>
             <label class="text-xl text-gray-300 block mb-2" id="macd-label">目前狀態：</label>
             <select id="macd" class="w-full p-4 bg-gray-900 text-white border-2 border-gray-600 rounded-lg text-2xl focus:border-blue-500 focus:outline-none cursor-pointer">
                 <option value="none">無明顯交叉</option>
@@ -109,8 +109,8 @@
     </div>
 
     <script>
-        // === 內部數學算法區塊 ===
-        function calcRSI(closes, period = 14) {
+        // === 內部數學算法區塊 (參數動態化) ===
+        function calcRSI(closes, period) {
             if(closes.length < period) return 50;
             let gains = 0, losses = 0;
             for(let i = 1; i <= period; i++) {
@@ -133,7 +133,7 @@
             return 100 - (100 / (1 + rs));
         }
 
-        function calcWilliamsR(highs, lows, closes, period = 14) {
+        function calcWilliamsR(highs, lows, closes, period) {
             if(closes.length < period) return -50;
             let lastClose = closes[closes.length - 1];
             let recentHighs = highs.slice(-period);
@@ -153,15 +153,16 @@
             return ema;
         }
 
-        function calcMACD(closes) {
-            if(closes.length < 35) return {curr: {macd: 0, signal: 0}, prev: {macd: 0, signal: 0}};
-            let ema12 = calcEMA(closes, 12);
-            let ema26 = calcEMA(closes, 26);
+        // 修改：讓 MACD 接受自訂的 fast, slow, signal 參數
+        function calcMACD(closes, fast = 5, slow = 26, signal = 5) {
+            if(closes.length < slow + signal) return {curr: {macd: 0, signal: 0}, prev: {macd: 0, signal: 0}};
+            let emaFast = calcEMA(closes, fast);
+            let emaSlow = calcEMA(closes, slow);
             let macdLine = [];
             for(let i = 0; i < closes.length; i++) {
-                macdLine.push(ema12[i] - ema26[i]);
+                macdLine.push(emaFast[i] - emaSlow[i]);
             }
-            let signalLine = calcEMA(macdLine, 9);
+            let signalLine = calcEMA(macdLine, signal);
             return {
                 curr: { macd: macdLine[macdLine.length-1], signal: signalLine[signalLine.length-1] },
                 prev: { macd: macdLine[macdLine.length-2], signal: signalLine[signalLine.length-2] }
@@ -241,12 +242,12 @@
             resultBox.className = "p-8 rounded-xl text-center text-2xl font-bold border-2 border-gray-600 bg-gray-800 shadow-lg text-gray-400";
 
             try {
+                // 為求 26 日均線穩定，多抓一點資料(150天)
                 let today = new Date();
                 let pastDate = new Date();
-                pastDate.setDate(today.getDate() - 120); 
+                pastDate.setDate(today.getDate() - 150); 
                 let startDateStr = pastDate.toISOString().split('T')[0];
 
-                // 1. 抓取股價資料
                 const priceUrl = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=${stockCode}&start_date=${startDateStr}${tokenParam}`;
                 const priceResponse = await fetch(priceUrl);
                 const priceJson = await priceResponse.json();
@@ -254,7 +255,6 @@
                 if (priceJson.msg === "exceeded maximum number of requests") throw new Error("超過免登入查詢次數，請輸入 Token。");
                 if (!priceJson.data || priceJson.data.length === 0) throw new Error("找不到股價資料，請確認代號是否輸入正確。");
 
-                // 2. 抓取三大法人資料
                 let recentDate = new Date();
                 recentDate.setDate(today.getDate() - 10);
                 let instDateStr = recentDate.toISOString().split('T')[0];
@@ -262,7 +262,6 @@
                 const instResponse = await fetch(instUrl);
                 const instJson = await instResponse.json();
 
-                // 3. 🌟 新增：抓取股票基本資料(取得中文名稱)
                 let stockName = "";
                 try {
                     const infoUrl = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockInfo&data_id=${stockCode}${tokenParam}`;
@@ -272,12 +271,10 @@
                         stockName = infoJson.data[0].stock_name;
                     }
                 } catch (e) {
-                    console.log("無法取得股票名稱，忽略此錯誤繼續執行。");
+                    console.log("無法取得名稱");
                 }
-                // 將名稱存在 input 的自訂屬性中，留給分析函數使用
                 document.getElementById('stock-code').dataset.name = stockName;
 
-                // 處理股價數據
                 const stockData = priceJson.data;
                 const latestPriceDate = stockData[stockData.length - 1].date;
                 
@@ -286,22 +283,27 @@
                 const lows = stockData.map(d => d.min);
                 const latestClose = closes[closes.length - 1];
 
-                // 填寫欄位
-                const rsi = calcRSI(closes);
-                document.getElementById('rsi').value = rsi.toFixed(1);
+                // 1. RSI (分別計算 8日 與 21日)
+                const rsi8 = calcRSI(closes, 8);
+                const rsi21 = calcRSI(closes, 21);
+                // 同時顯示在同一個格子裡
+                document.getElementById('rsi').value = `${rsi8.toFixed(1)} / ${rsi21.toFixed(1)}`;
                 document.getElementById('rsi-label').innerText = `更新至 ${latestPriceDate}：`;
 
-                const wr = calcWilliamsR(highs, lows, closes);
+                // 2. 威廉指數 (改為 21日)
+                const wr = calcWilliamsR(highs, lows, closes, 21);
                 document.getElementById('williams').value = wr.toFixed(1);
                 document.getElementById('williams-label').innerText = `更新至 ${latestPriceDate}：`;
 
-                const macdData = calcMACD(closes);
+                // 3. MACD (改為 5, 26, 5)
+                const macdData = calcMACD(closes, 5, 26, 5);
                 let macdStatus = 'none';
                 if (macdData.prev.macd <= macdData.prev.signal && macdData.curr.macd > macdData.curr.signal) macdStatus = 'golden';
                 else if (macdData.prev.macd >= macdData.prev.signal && macdData.curr.macd < macdData.curr.signal) macdStatus = 'death';
                 document.getElementById('macd').value = macdStatus;
                 document.getElementById('macd-label').innerText = `MACD狀態：`;
 
+                // 4. KD (保持 9日)
                 const kdData = calcKD(highs, lows, closes);
                 let kdStatus = 'none';
                 if (kdData.prev.k <= kdData.prev.d && kdData.curr.k > kdData.curr.d && kdData.curr.k <= 25) kdStatus = 'golden'; 
@@ -309,6 +311,7 @@
                 document.getElementById('kd').value = kdStatus;
                 document.getElementById('kd-label').innerText = `K:${kdData.curr.k.toFixed(1)} / D:${kdData.curr.d.toFixed(1)}：`;
 
+                // 5. 布林通道 (保持 20日)
                 const bbData = calcBollinger(closes);
                 let bbStatus = 'none';
                 if (latestClose <= bbData.lower * 1.01) bbStatus = 'lower';
@@ -316,6 +319,7 @@
                 document.getElementById('bollinger').value = bbStatus;
                 document.getElementById('bollinger-label').innerText = `收盤價 ${latestClose}：`;
 
+                // 6. 法人買賣超
                 let instStatus = 'none';
                 if (instJson.data && instJson.data.length > 0) {
                     const instData = instJson.data;
@@ -340,14 +344,22 @@
 
         function analyzeStock() {
             let stockCode = document.getElementById('stock-code').value.trim();
-            // 從 dataset 提取剛剛抓到的中文名稱
             let stockName = document.getElementById('stock-code').dataset.name || "";
             let displayName = stockName ? `${stockCode} ${stockName}` : stockCode;
             
-            // 將原本只顯示代號的地方，改為顯示【代號 + 中文名稱】
             let headerText = stockCode ? `<div class="text-3xl text-blue-300 mb-4 border-b border-gray-600 pb-2">針對【${displayName}】的最新診斷結果</div>` : "";
 
-            let rsi = parseFloat(document.getElementById('rsi').value);
+            // 解析包含兩個數值的 RSI 欄位 ("25.1 / 30.2")
+            let rsiRaw = document.getElementById('rsi').value;
+            let rsi8 = NaN;
+            let rsi21 = NaN;
+            if(rsiRaw.includes('/')) {
+                rsi8 = parseFloat(rsiRaw.split('/')[0]);
+                rsi21 = parseFloat(rsiRaw.split('/')[1]);
+            } else {
+                rsi8 = parseFloat(rsiRaw); // 相容手動只輸入一個數字的情況
+            }
+            
             let williams = parseFloat(document.getElementById('williams').value);
             let institutional = document.getElementById('institutional').value;
             let macd = document.getElementById('macd').value;
@@ -357,19 +369,20 @@
             let bullishReasons = [];
             let bearishReasons = [];
 
-            if (!isNaN(rsi)) { 
-                if (rsi <= 30) bullishReasons.push("RSI 處於低檔超賣區 (跌深)"); 
-                else if (rsi >= 70) bearishReasons.push("RSI 處於高檔超買區 (過熱)"); 
+            // 採用較靈敏的 RSI(8日) 作為主要過熱/超賣判斷
+            if (!isNaN(rsi8)) { 
+                if (rsi8 <= 30) bullishReasons.push(`RSI(8日) 處於低檔超賣區 (跌深)`); 
+                else if (rsi8 >= 70) bearishReasons.push(`RSI(8日) 處於高檔超買區 (過熱)`); 
             }
             if (!isNaN(williams)) { 
-                if (williams <= -80) bullishReasons.push("威廉指數處於低檔 (具反彈契機)"); 
-                else if (williams >= -20) bearishReasons.push("威廉指數處於高檔 (具回檔壓力)"); 
+                if (williams <= -80) bullishReasons.push("威廉指數(21日)處於低檔 (具反彈契機)"); 
+                else if (williams >= -20) bearishReasons.push("威廉指數(21日)處於高檔 (具回檔壓力)"); 
             }
             if (institutional === 'buy') bullishReasons.push("三大法人呈現買超 (籌碼面偏多)"); 
             else if (institutional === 'sell') bearishReasons.push("三大法人呈現賣超 (籌碼面偏空)");
             
-            if (macd === 'golden') bullishReasons.push("MACD 出現黃金交叉 (中長線轉強)"); 
-            else if (macd === 'death') bearishReasons.push("MACD 出現死亡交叉 (中長線轉弱)");
+            if (macd === 'golden') bullishReasons.push("MACD(5,26,5) 出現黃金交叉 (波段轉強)"); 
+            else if (macd === 'death') bearishReasons.push("MACD(5,26,5) 出現死亡交叉 (波段轉弱)");
             
             if (kd === 'golden') bullishReasons.push("KD 指標低檔黃金交叉 (短線轉強)"); 
             else if (kd === 'death') bearishReasons.push("KD 指標高檔死亡交叉 (短線轉弱)");
@@ -417,7 +430,6 @@
                 
                 contentHTML += `<div class='grid grid-cols-1 md:grid-cols-2 gap-6'>`;
                 
-                // 左欄：偏多
                 contentHTML += `<div><div class='text-red-300 font-bold mb-2'>【偏多指標】：</div>`;
                 if(buyCount > 0) {
                     contentHTML += `<ul class='list-disc list-inside text-gray-300 ml-2'>`;
@@ -427,7 +439,6 @@
                     contentHTML += `<span class='text-gray-500 ml-2'>無明顯偏多訊號</span></div>`;
                 }
 
-                // 右欄：偏空
                 contentHTML += `<div><div class='text-green-300 font-bold mb-2'>【偏空指標】：</div>`;
                 if(sellCount > 0) {
                     contentHTML += `<ul class='list-disc list-inside text-gray-300 ml-2'>`;
